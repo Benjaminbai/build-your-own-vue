@@ -1,0 +1,19 @@
+{
+  "name": "@my-vue/runtime-dom",
+  "version": "1.0.0",
+  "module": "dist/runtime-dom.esm-bundler.js",
+  "unpkg": "dist/runtime-dom.global.js",
+  "buildOptions": {
+    "name": "MyVueRuntimeDom",
+    "formats": [
+      "esm-bundler",
+      "esm-browser",
+      "cjs",
+      "global"
+    ]
+  },
+  "dependencies": {
+    "@my-vue/reactivity": "workspace:^",
+    "@my-vue/shared": "workspace:^"
+  }
+}

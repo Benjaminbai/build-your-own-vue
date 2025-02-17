@@ -65,6 +65,14 @@ export class ReactiveEffect {
       activeEffect = lastEffect;
     }
   }
+
+  stop() {
+    if (this.active) {
+      this.active = false;
+      preCleanEffects(this);
+      postCleanEffects(this);
+    }
+  }
 }
 
 function cleanDepEffect(dep, effect) {

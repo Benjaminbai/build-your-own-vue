@@ -18,28 +18,43 @@
         proxyRefs,
         computed,
         watch,
+        watchEffect,
       } from "./reactivity.js";
 
-      const app = document.querySelector("#app");
+      const app = document.getElementById("app");
+      const val = ref(0);
 
-      const state = reactive({
-        name: "Benjamin",
-        age: 28,
-        address: { n: "Jane" },
-      });
+      function getData(timer) {
+        return new Promise((resolve, reject) => {
+          setTimeout(() => {
+            resolve(timer);
+          }, timer);
+        });
+      }
+
+      let timer = 3000;
 
       watch(
-        state,
-        (newValue, oldValue) => {
-          console.log("state changed:", newValue, oldValue);
+        val,
+        async (newValue, oldValue, onCleanup) => {
+          let flag = true;
+          timer -= 1000;
+          onCleanup(() => {
+            flag = false;
+          });
+          let r = await getData(timer);
+          if (flag) {
+            app.innerHTML = r;
+          }
         },
         {
-          deep: true,
+          flush: "sync",
         }
       );
 
       setTimeout(() => {
-        state.address.n = "John";
+        val.value = "a";
+        val.value = "b";
       }, 1000);
     </script>
   </body>

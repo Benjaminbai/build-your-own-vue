@@ -1,5 +1,7 @@
 import { ReactiveEffect } from "./effect";
-import { isObject } from "@my-vue/shared";
+import { isObject, isFunction } from "@my-vue/shared";
+import { isReactive } from "./reactive";
+import { isRef } from "./ref";
 
 function traverse(source, depth, currentDepth = 0, seen = new Set()) {
   if (!isObject(source)) {
@@ -24,20 +26,61 @@ function traverse(source, depth, currentDepth = 0, seen = new Set()) {
   return source;
 }
 
-function doWatch(source, cb, { deep }) {
+function doWatch(source, cb, { deep, immediate }) {
   const reactiveGetter = (source) =>
     traverse(source, deep === false ? 1 : undefined);
-  const getter = () => reactiveGetter(source);
+  let getter;
+  if (isReactive(source)) {
+    getter = () => reactiveGetter(source);
+  } else if (isRef(source)) {
+    getter = () => source.value;
+  } else if (isFunction(source)) {
+    getter = source;
+  }
+
   let oldValue;
-  const job = () => {
-    const newValue = effect.run();
-    cb(newValue, oldValue);
-    oldValue = newValue;
+  let clean;
+  const onCleanup = (fn) => {
+    clean = () => {
+      fn();
+      clean = undefined;
+    };
   };
-  const effect = new ReactiveEffect(getter, job);
-  oldValue = effect.run();
+
+  const job = () => {
+    if (cb) {
+      const newValue = effect.run();
+      if (clean) {
+        clean();
+      }
+      cb(newValue, oldValue, onCleanup);
+      oldValue = newValue;
+    } else {
+      effect.run();
+    }
+  };
+  const effect: any = new ReactiveEffect(getter, job);
+  if (cb) {
+    if (immediate) {
+      job();
+    } else {
+      oldValue = effect.run();
+    }
+  } else {
+    effect.run();
+  }
+
+  const unwatch = () => {
+    effect.stop();
+  };
+
+  return unwatch;
 }
 
-export function watch(source, cb, options) {
-  return doWatch(source, cb, options);
+export function watch(source, cb, options = {}) {
+  return doWatch(source, cb, options as any);
+}
+
+export function watchEffect(source, options = {}) {
+  return doWatch(source, null, options as any);
 }
