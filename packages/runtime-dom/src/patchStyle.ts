@@ -4,7 +4,7 @@ export function patchStyle(el, prevValue, nextValue) {
     style[key] = nextValue[key];
   }
   for (const key in prevValue) {
-    if (nextValue[key] == null) {
+    if (nextValue && nextValue[key] == null) {
       style[key] = null;
     }
   }
