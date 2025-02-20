@@ -1,5 +1,6 @@
 import { ShapeFlags } from "@my-vue/shared";
 import { isSameVnode } from "./createVnode";
+import { getSequence } from "./seq";
 
 export function createRenderer(renderOptions) {
   const {
@@ -20,7 +21,7 @@ export function createRenderer(renderOptions) {
     }
   };
 
-  const mountElement = (vnode, container) => {
+  const mountElement = (vnode, container, anchor) => {
     const { type, children, props, shapeFlag } = vnode;
     const el = (vnode.el = hostCreateElement(type));
 
@@ -36,7 +37,7 @@ export function createRenderer(renderOptions) {
       mountChildren(children, el);
     }
 
-    hostInsert(el, container);
+    hostInsert(el, container, anchor);
   };
 
   function patchProps(oldProps, newProps, el) {
@@ -58,6 +59,91 @@ export function createRenderer(renderOptions) {
     }
   }
 
+  function patchKeyedChildren(c1, c2, el) {
+    let i = 0;
+    let e1 = c1.length - 1;
+    let e2 = c2.length - 1;
+    while (i <= e1 && i <= e2) {
+      const n1 = c1[i];
+      const n2 = c2[i];
+      if (isSameVnode(n1, n2)) {
+        patch(n1, n2, el);
+      } else {
+        break;
+      }
+      i++;
+    }
+
+    while (i <= e1 && i <= e2) {
+      const n1 = c1[e1];
+      const n2 = c2[e2];
+      if (isSameVnode(n1, n2)) {
+        patch(n1, n2, el);
+      } else {
+        break;
+      }
+
+      e1--;
+      e2--;
+    }
+
+    if (i > e1) {
+      if (i <= e2) {
+        let nextPos = e2 + 1;
+        let anchor = c2[nextPos]?.el;
+        while (i <= e2) {
+          patch(null, c2[i], el, anchor);
+          i++;
+        }
+      }
+    } else if (i > e2) {
+      if (i <= e1) {
+        while (i <= e1) {
+          unmount(c1[i]);
+          i++;
+        }
+      }
+    } else {
+      let s1 = i;
+      let s2 = i;
+      let keyToNewIndexMap = new Map();
+      let toBePatched = e2 - s2 + 1;
+      let newIndexToOldIndexMap = new Array(toBePatched).fill(0);
+
+      for (let i = s2; i <= e2; i++) {
+        const vnode = c2[i];
+        keyToNewIndexMap.set(vnode.key, i);
+      }
+
+      for (let i = s1; i <= e1; i++) {
+        const vnode = c1[i];
+        const newIndex = keyToNewIndexMap.get(vnode.key);
+        if (newIndex == undefined) {
+          unmount(vnode);
+        } else {
+          newIndexToOldIndexMap[newIndex - s2] = i + 1;
+          patch(vnode, c2[newIndex], el);
+        }
+      }
+      let increasingSeq = getSequence(newIndexToOldIndexMap);
+      let j = increasingSeq.length - 1;
+      for (let i = toBePatched - 1; i >= 0; i--) {
+        let newIndex = s2 + i;
+        let anchor = c2[newIndex + 1]?.el;
+        let vnode = c2[newIndex];
+        if (!vnode.el) {
+          patch(null, vnode, el, anchor);
+        } else {
+          if (i === increasingSeq[j]) {
+            j--;
+          } else {
+            hostInsert(vnode.el, el, anchor);
+          }
+        }
+      }
+    }
+  }
+
   function patchChildren(oldVnode, newVnode, el) {
     const c1 = oldVnode.children;
     const c2 = newVnode.children;
@@ -76,6 +162,7 @@ export function createRenderer(renderOptions) {
     } else {
       if (prevShapeFlag & ShapeFlags.ARRAY_CHILDREN) {
         if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
+          patchKeyedChildren(c1, c2, el);
         } else {
           unmountChildren(c1);
         }
@@ -101,15 +188,15 @@ export function createRenderer(renderOptions) {
     patchChildren(oldVnode, newVnode, el);
   }
 
-  function processElement(oldVnode, newVnode, container) {
+  function processElement(oldVnode, newVnode, container, anchor) {
     if (oldVnode == null) {
-      mountElement(newVnode, container);
+      mountElement(newVnode, container, anchor);
     } else {
       patchElement(oldVnode, newVnode, container);
     }
   }
 
-  const patch = (oldVnode, newVnode, container) => {
+  const patch = (oldVnode, newVnode, container, anchor = null) => {
     if (oldVnode === newVnode) {
       return;
     }
@@ -118,7 +205,7 @@ export function createRenderer(renderOptions) {
       unmount(oldVnode);
       oldVnode = null;
     }
-    processElement(oldVnode, newVnode, container);
+    processElement(oldVnode, newVnode, container, anchor);
   };
 
   function unmount(vnode) {
