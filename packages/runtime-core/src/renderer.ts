@@ -1,6 +1,9 @@
 import { ShapeFlags } from "@my-vue/shared";
-import { isSameVnode } from "./createVnode";
+import { isSameVnode, Text, Fragment } from "./createVnode";
 import { getSequence } from "./seq";
+import { ReactiveEffect } from "packages/reactivity/src/effect";
+import { queueJob } from "./scheduler";
+import { createComponentInstance, setupComponent } from "./component";
 
 export function createRenderer(renderOptions) {
   const {
@@ -196,6 +199,61 @@ export function createRenderer(renderOptions) {
     }
   }
 
+  function processText(oldVnode, newVnode, container) {
+    if (oldVnode == null) {
+      hostInsert((newVnode.el = hostCreateText(newVnode.children)), container);
+    } else {
+      const el = (newVnode.el = oldVnode.el);
+      if (newVnode.children !== oldVnode.children) {
+        hostSetText(el, newVnode.children);
+      }
+    }
+  }
+
+  function processFragment(oldVnode, newVnode, container) {
+    if (oldVnode == null) {
+      mountChildren(newVnode.children, container);
+    } else {
+      patchChildren(oldVnode, newVnode, container);
+    }
+  }
+
+  function setupRenderEffect(instance, container, anchor) {
+    const { render } = instance;
+    const componentUpdateFn = () => {
+      if (!instance.isMounted) {
+        const subTree = render.call(instance.proxy, instance.proxy);
+        patch(null, subTree, container, anchor);
+        instance.subTree = subTree;
+        instance.isMounted = true;
+      } else {
+        const subTree = render.call(instance.proxy, instance.proxy);
+        patch(instance.subTree, subTree, container, anchor);
+        instance.subTree = subTree;
+      }
+    };
+
+    const efft = new ReactiveEffect(componentUpdateFn, () => queueJob(update));
+
+    const update = (instance.update = () => {
+      efft.run();
+    });
+    update();
+  }
+
+  function mountComponent(vnode, container, anchor) {
+    const instance = (vnode.component = createComponentInstance(vnode));
+    setupComponent(instance);
+    setupRenderEffect(instance, container, anchor);
+  }
+
+  function processComponent(oldVnode, newVnode, container, anchor) {
+    if (oldVnode == null) {
+      mountComponent(newVnode, container, anchor);
+    } else {
+    }
+  }
+
   const patch = (oldVnode, newVnode, container, anchor = null) => {
     if (oldVnode === newVnode) {
       return;
@@ -205,11 +263,31 @@ export function createRenderer(renderOptions) {
       unmount(oldVnode);
       oldVnode = null;
     }
-    processElement(oldVnode, newVnode, container, anchor);
+    const { type, shapeFlag } = newVnode;
+    switch (type) {
+      case Text:
+        processText(oldVnode, newVnode, container);
+        break;
+      case Fragment:
+        processFragment(oldVnode, newVnode, container);
+        break;
+
+      default:
+        if (shapeFlag & ShapeFlags.ELEMENT) {
+          processElement(oldVnode, newVnode, container, anchor);
+        } else {
+          processComponent(oldVnode, newVnode, container, anchor);
+        }
+        break;
+    }
   };
 
   function unmount(vnode) {
-    hostRemove(vnode.el);
+    if (vnode.type === Fragment) {
+      unmountChildren(vnode.children);
+    } else {
+      hostRemove(vnode.el);
+    }
   }
 
   const render = (vnode, container) => {
@@ -217,10 +295,10 @@ export function createRenderer(renderOptions) {
       if (container._vnode) {
         unmount(container._vnode);
       }
+    } else {
+      patch(container._vnode || null, vnode, container);
+      container._vnode = vnode;
     }
-    patch(container._vnode || null, vnode, container);
-
-    container._vnode = vnode;
   };
 
   return {
