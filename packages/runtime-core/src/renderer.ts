@@ -4,6 +4,7 @@ import { getSequence } from "./seq";
 import { ReactiveEffect } from "packages/reactivity/src/effect";
 import { queueJob } from "./scheduler";
 import { createComponentInstance, setupComponent } from "./component";
+import { invokeArray } from "./apiLifeCycle";
 
 export function createRenderer(renderOptions) {
   const {
@@ -218,18 +219,42 @@ export function createRenderer(renderOptions) {
     }
   }
 
+  function updateComponentPreRender(instance, nextVnode) {
+    instance.next = null;
+    instance.vnode = nextVnode;
+    updateProps(instance, instance.props, nextVnode.props);
+  }
+
   function setupRenderEffect(instance, container, anchor) {
     const { render } = instance;
     const componentUpdateFn = () => {
+      const { bm, m } = instance;
       if (!instance.isMounted) {
+        if (bm) {
+          invokeArray(bm);
+        }
         const subTree = render.call(instance.proxy, instance.proxy);
         patch(null, subTree, container, anchor);
-        instance.subTree = subTree;
         instance.isMounted = true;
+        instance.subTree = subTree;
+        if (m) {
+          invokeArray(m);
+        }
       } else {
+        const { next, bu, u } = instance;
+        if (next) {
+          updateComponentPreRender(instance, next);
+        }
+
+        if (bu) {
+          invokeArray(bu);
+        }
         const subTree = render.call(instance.proxy, instance.proxy);
         patch(instance.subTree, subTree, container, anchor);
         instance.subTree = subTree;
+        if (u) {
+          invokeArray(u);
+        }
       }
     };
 
@@ -247,10 +272,56 @@ export function createRenderer(renderOptions) {
     setupRenderEffect(instance, container, anchor);
   }
 
+  function hasPropsChanged(oldProps, newProps) {
+    let nkeys = Object.keys(newProps);
+    if (Object.keys(oldProps).length !== nkeys.length) {
+      return true;
+    }
+    for (let i = 0; i < nkeys.length; i++) {
+      const key = nkeys[i];
+      if (oldProps[key] !== newProps[key]) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function updateProps(instance, oldProps, newProps) {
+    if (hasPropsChanged(oldProps, newProps)) {
+      for (const key in newProps) {
+        instance.props[key] = newProps[key];
+      }
+      for (const key in instance.props) {
+        if (!(key in newProps)) {
+          delete instance.props[key];
+        }
+      }
+    }
+  }
+
+  function shouldComponentUpdate(oldVnode, newVnode) {
+    const { props: prevProps, children: prevChildren } = oldVnode;
+    const { props: nextProps, children: nextChildren } = newVnode;
+    if (prevChildren || nextChildren) return true;
+    if (prevProps === nextProps) return false;
+    return hasPropsChanged(prevProps, nextProps);
+  }
+
+  function updateComponent(oldVnode, newVnode) {
+    const instance = (newVnode.component = oldVnode.component);
+    if (shouldComponentUpdate(oldVnode, newVnode)) {
+      instance.next = newVnode;
+      instance.update();
+    } else {
+    }
+  }
+
   function processComponent(oldVnode, newVnode, container, anchor) {
     if (oldVnode == null) {
       mountComponent(newVnode, container, anchor);
     } else {
+      updateComponent(oldVnode, newVnode);
     }
   }
 
@@ -283,8 +354,11 @@ export function createRenderer(renderOptions) {
   };
 
   function unmount(vnode) {
+    const { shapeFlag } = vnode;
     if (vnode.type === Fragment) {
       unmountChildren(vnode.children);
+    } else if (shapeFlag & ShapeFlags.COMPONENT) {
+      unmount(vnode.component.subTree);
     } else {
       hostRemove(vnode.el);
     }

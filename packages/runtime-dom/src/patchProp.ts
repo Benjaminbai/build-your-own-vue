@@ -8,7 +8,7 @@ export default function patchProp(el, key, prevValue, nextValue) {
     return patchClass(el, nextValue);
   } else if (key === "style") {
     return patchStyle(el, prevValue, nextValue);
-  } else if (/^on[a-z]/.test(key)) {
+  } else if (/^on[A-Z]/.test(key)) {
     return patchEvent(el, key, nextValue);
   } else {
     return patchAttr(el, key, nextValue);
