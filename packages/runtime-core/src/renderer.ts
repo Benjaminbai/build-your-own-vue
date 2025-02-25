@@ -1,7 +1,7 @@
 import { ShapeFlags } from "@my-vue/shared";
 import { isSameVnode, Text, Fragment } from "./createVnode";
 import { getSequence } from "./seq";
-import { ReactiveEffect } from "packages/reactivity/src/effect";
+import { ReactiveEffect, isRef } from "@my-vue/reactivity";
 import { queueJob } from "./scheduler";
 import { createComponentInstance, setupComponent } from "./component";
 import { invokeArray } from "./apiLifeCycle";
@@ -225,15 +225,24 @@ export function createRenderer(renderOptions) {
     updateProps(instance, instance.props, nextVnode.props);
   }
 
+  function renderComponent(instance) {
+    const { render, vnode, proxy, props, attrs } = instance;
+    if (vnode.shapeFlag & ShapeFlags.STATEFUL_COMPONENT) {
+      return render.call(proxy, proxy);
+    } else {
+      return vnode.type(attrs);
+    }
+  }
+
   function setupRenderEffect(instance, container, anchor) {
-    const { render } = instance;
     const componentUpdateFn = () => {
       const { bm, m } = instance;
       if (!instance.isMounted) {
         if (bm) {
           invokeArray(bm);
         }
-        const subTree = render.call(instance.proxy, instance.proxy);
+
+        const subTree = renderComponent(instance);
         patch(null, subTree, container, anchor);
         instance.isMounted = true;
         instance.subTree = subTree;
@@ -249,7 +258,7 @@ export function createRenderer(renderOptions) {
         if (bu) {
           invokeArray(bu);
         }
-        const subTree = render.call(instance.proxy, instance.proxy);
+        const subTree = renderComponent(instance);
         patch(instance.subTree, subTree, container, anchor);
         instance.subTree = subTree;
         if (u) {
@@ -334,7 +343,7 @@ export function createRenderer(renderOptions) {
       unmount(oldVnode);
       oldVnode = null;
     }
-    const { type, shapeFlag } = newVnode;
+    const { type, shapeFlag, ref } = newVnode;
     switch (type) {
       case Text:
         processText(oldVnode, newVnode, container);
@@ -351,7 +360,21 @@ export function createRenderer(renderOptions) {
         }
         break;
     }
+
+    if (ref !== null) {
+      setRef(ref, newVnode);
+    }
   };
+
+  function setRef(rawRef, vnode) {
+    let value =
+      vnode.shapeFlag & ShapeFlags.STATEFUL_COMPONENT
+        ? vnode.component.exposed || vnode.component.proxy
+        : vnode.el;
+    if (isRef(rawRef)) {
+      rawRef.value = value;
+    }
+  }
 
   function unmount(vnode) {
     const { shapeFlag } = vnode;

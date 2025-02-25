@@ -1,4 +1,4 @@
-import { isString, ShapeFlags, isObject } from "@my-vue/shared";
+import { isString, ShapeFlags, isObject, isFunction } from "@my-vue/shared";
 
 export function isVnode(value) {
   return value?.__v_isVnode;
@@ -13,6 +13,8 @@ export function createVnode(type, props, children?) {
     ? ShapeFlags.ELEMENT
     : isObject(type)
     ? ShapeFlags.STATEFUL_COMPONENT
+    : isFunction(type)
+    ? ShapeFlags.FUNCTIONAL_COMPONENT
     : 0;
   const vnode = {
     __v_isVnode: true,
@@ -22,13 +24,13 @@ export function createVnode(type, props, children?) {
     key: props?.key,
     el: null,
     shapeFlag,
+    ref: props?.ref,
   };
   if (children) {
     if (Array.isArray(children)) {
       vnode.shapeFlag |= ShapeFlags.ARRAY_CHILDREN;
-    }else if(isObject(children)) {
+    } else if (isObject(children)) {
       vnode.shapeFlag |= ShapeFlags.SLOTS_CHILDREN;
-      
     } else {
       children = String(children);
       vnode.shapeFlag |= ShapeFlags.TEXT_CHILDREN;
